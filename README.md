@@ -283,6 +283,5 @@ src/main/java/com/eia/analyzer/
     └── HtmlReport.java             Self-contained HTML rendering
 ```
 
-## License
-
-Academic project. Free to read, fork and learn from.
+## GROUP
+Samuel Giraldo Jimenez - Samuel Buelvas Cabrales
