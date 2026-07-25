@@ -4,11 +4,14 @@ import com.eia.analyzer.ai.AiAnalyzer;
 import com.eia.analyzer.classic.ClassicAnalyzer;
 import com.eia.analyzer.model.Finding;
 import com.eia.analyzer.report.ComparativeReport;
+import com.eia.analyzer.report.HtmlReport;
 import com.eia.analyzer.report.VarianceReport;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 
+import java.awt.Desktop;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -46,6 +49,7 @@ public class Main {
         boolean offline = hasFlag(args, "--offline");
         boolean classicOnly = hasFlag(args, "--classic-only");
         int repeat = intFlag(args, "--repeat", 0);
+        boolean html = hasFlag(args, "--html");
         Double temperature = doubleFlag(args, "--temperature");
 
         try {
@@ -58,11 +62,11 @@ public class Main {
             String fileName = target.getFileName().toString();
 
             if (repeat > 0) {
-                runExperiment(fileName, sourceCode, repeat, temperature);
+                runExperiment(fileName, sourceCode, repeat, temperature, html);
                 return;
             }
 
-            runAnalysis(fileName, sourceCode, offline, classicOnly, temperature);
+            runAnalysis(fileName, sourceCode, offline, classicOnly, temperature, html);
 
         } catch (Exception e) {
             System.err.println();
@@ -76,7 +80,7 @@ public class Main {
      */
     private static void runAnalysis(String fileName, String sourceCode,
                                     boolean offline, boolean classicOnly,
-                                    Double temperature) throws Exception {
+                                    Double temperature, boolean html) throws Exception {
         System.out.println();
         System.out.println("Parsing " + fileName + " ...");
         CompilationUnit compilationUnit = StaticJavaParser.parse(sourceCode);
@@ -96,6 +100,10 @@ public class Main {
         }
 
         new ComparativeReport().print(fileName, classicFindings, aiFindings);
+
+        if (html) {
+            open(new HtmlReport().writeAnalysis(fileName, classicFindings, aiFindings));
+        }
     }
 
     /**
@@ -106,7 +114,8 @@ public class Main {
      * would guarantee a perfect score and prove nothing.
      */
     private static void runExperiment(String fileName, String sourceCode,
-                                      int runs, Double temperature) throws Exception {
+                                      int runs, Double temperature,
+                                      boolean html) throws Exception {
         System.out.println();
         System.out.println("Reproducibility experiment on " + fileName);
         System.out.printf("  %d runs, AI temperature %s%n", runs,
@@ -138,6 +147,26 @@ public class Main {
         // reader still gets the readable side-by-side report.
         System.out.println("  Full detail of run 1 follows, for reference.");
         new ComparativeReport().print(fileName, classicRuns.get(0), aiRuns.get(0));
+
+        if (html) {
+            open(new HtmlReport().writeExperiment(fileName, runs, classicRuns, aiRuns));
+        }
+    }
+
+    /**
+     * Prints the report path and tries to open it in the default browser.
+     * Headless environments simply skip the second part.
+     */
+    private static void open(java.nio.file.Path report) {
+        System.out.println("  HTML report: " + report.toAbsolutePath());
+        try {
+            if (Desktop.isDesktopSupported()
+                    && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(report.toUri());
+            }
+        } catch (IOException | UnsupportedOperationException e) {
+            System.out.println("  (could not open a browser automatically)");
+        }
     }
 
     private static void printUsage() {
@@ -148,6 +177,7 @@ public class Main {
         System.out.println("  --classic-only      skip the AI pass");
         System.out.println("  --repeat N          reproducibility experiment with N runs");
         System.out.println("  --temperature X     sampling temperature (omitted if not given)");
+        System.out.println("  --html              write an HTML report and open it");
     }
 
     private static boolean hasFlag(String[] args, String flag) {
