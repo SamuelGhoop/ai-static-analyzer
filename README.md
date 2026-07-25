@@ -242,6 +242,9 @@ java -jar target/analyzer.jar samples/Buggy.java --classic-only
 
 # Reproducibility experiment
 java -jar target/analyzer.jar samples/Buggy.java --repeat 5
+
+# Any of the above, plus a rendered HTML report opened in the browser
+java -jar target/analyzer.jar samples/Buggy.java --repeat 5 --html
 ```
 
 | Flag | Effect |
@@ -250,6 +253,7 @@ java -jar target/analyzer.jar samples/Buggy.java --repeat 5
 | `--classic-only` | Skip the AI pass entirely |
 | `--repeat N` | Run the reproducibility experiment N times |
 | `--temperature X` | Sampling temperature; omitted from the request if not given |
+| `--html` | Write a self-contained HTML report to `report/` and open it |
 
 `--temperature` is kept for older models. Current models reject it.
 
@@ -275,8 +279,10 @@ src/main/java/com/eia/analyzer/
 │   └── AiAnalyzer.java             Prompt, JSON parsing, offline cache
 └── report/
     ├── ComparativeReport.java      Side-by-side console report
-    └── VarianceReport.java         Reproducibility experiment
+    ├── VarianceReport.java         Reproducibility experiment
+    └── HtmlReport.java             Self-contained HTML rendering
 ```
 
-## Group
-Samuel Giraldo Jimenez - Samuel Buelvas Cabrales
+## License
+
+Academic project. Free to read, fork and learn from.
