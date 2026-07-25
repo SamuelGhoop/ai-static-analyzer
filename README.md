@@ -127,7 +127,7 @@ happen to sit next to each other. The gap between them is the interesting
 quantity — it isolates how much disagreement comes from the model failing to
 *see* a bug, versus failing to say *where* it is.
 
-### Results — 7 experiments, 35 runs per pass
+### Results — 8 experiments, 40 runs per pass
 
 | Experiment | Classic (strict / merged) | AI strict | AI merged |
 |---|---|---|---|
@@ -138,11 +138,16 @@ quantity — it isolates how much disagreement comes from the model failing to
 | 5 | 100% / 100% | 43% | 50% |
 | 6 | 100% / 100% | 25% | 50% |
 | 7 | 100% / 100% | 25% | 50% |
+| 8 | 100% / 100% | 71% | 100% |
 
 The classic pass scores identically under both metrics: none of its findings
-ever landed on adjacent lines, so there was nothing to fuse. Six of the seven
-AI experiments land on exactly 50% merged — half the defects reported every
-time, half coming and going.
+ever landed on adjacent lines, so there was nothing to fuse.
+
+Experiment 8 is the clearest case for reporting both numbers. Every defect was
+found in all five runs — the model missed nothing. Its strict score is 71%
+only because it filed the swallowed exception under line 76 four times and line
+75 once. A single number would have called that run unreliable; it was
+perfectly reliable at detection and unreliable only at addressing.
 
 Experiments 1 and 2 passed `--temperature 1.0` explicitly; the rest omitted the
 parameter. Since 1.0 is the model default, all seven ran under identical
@@ -151,18 +156,18 @@ conditions — which is why we could not treat them as two configurations.
 | | Classic | AI |
 |---|---|---|
 | Findings per run (min–max) | 4 – 4 | 3 – 6 |
-| Identical report every run | yes, 35/35 | never |
+| Identical report every run | yes, 40/40 | never |
 | Reproducibility, strict | 100% | 25% – 71% |
-| Reproducibility, merged | 100% | 50% – 83% |
+| Reproducibility, merged | 100% | 50% – 100% |
 
 ---
 
 ## What we found
 
-**1. The AI pass never reproduced itself.** Across 35 runs on an unchanged
-file with an unchanged prompt, it returned between 3 and 6 findings. The
-classic pass returned the same 4 findings, with the same wording, 35 times out
-of 35.
+**1. The AI pass never reproduced itself exactly.** Across 40 runs on an
+unchanged file with an unchanged prompt, it returned between 3 and 6 findings,
+and its wording changed every time. The classic pass returned the same 4
+findings, with the same wording, 40 times out of 40.
 
 **2. Even the measurement of instability is unstable.** Two experiments run
 back to back under identical conditions scored 71% and 25%. There is no single
@@ -177,7 +182,7 @@ used to reach for is gone.
 
 **4. The model is stable exactly where it is irreplaceable.** The off-by-one
 error at line 36 and the misleading method name at line 48 — the two defects
-no syntactic rule can express — were reported in **35 runs out of 35**. Every
+no syntactic rule can express — were reported in **40 runs out of 40**. Every
 finding that wobbled was one the classic pass already covers. The AI is
 reliable on deep semantic analysis and unreliable on shallow pattern matching,
 which is a strong argument for the hybrid design rather than against it.
@@ -186,14 +191,14 @@ which is a strong argument for the hybrid design rather than against it.
 exception was reported at line 75 in some runs and line 76 in others; the
 inverted discount at line 84 or 85. This is a distinct failure from missing a
 bug, and it is what the two metrics separate: across the seven experiments,
-merging adjacent lines lifts reproducibility from 25–71% to 50–83%. Roughly
+merging adjacent lines lifts reproducibility from 25–71% to 50–100%. Roughly
 half the apparent instability is not the model missing defects — it is the
 model finding them and disagreeing with itself about their address.
 
 **6. It does not always follow instructions.** The prompt explicitly forbids
 reporting unused variables, unreachable code, empty catch blocks and `==`
 string comparison. The model reported them anyway in most runs. In one run out
-of 35 it complied perfectly — and that run produced a comparative report with
+of 40 it complied perfectly — and that run produced a comparative report with
 **zero overlap** between the two passes: four findings each, completely
 disjoint.
 
@@ -283,5 +288,5 @@ src/main/java/com/eia/analyzer/
     └── HtmlReport.java             Self-contained HTML rendering
 ```
 
-## GROUP
+## Group
 Samuel Giraldo Jimenez - Samuel Buelvas Cabrales
