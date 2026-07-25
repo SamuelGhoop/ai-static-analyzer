@@ -108,33 +108,66 @@ identical report every run. Any instability in the AI pass is therefore a
 property of the model, not of the harness. The cache is bypassed here — replaying
 a stored answer would guarantee a perfect score and prove nothing.
 
-*Reproducibility* is the percentage of distinct findings that appeared in
-**every** run.
+Reproducibility is reported twice, because one number cannot separate two very
+different failures.
 
-### Results — 5 experiments, 25 runs per pass
+**Strict** groups findings by exact line: *did the analyzer report the same
+thing, in the same place, every time?* It is unforgiving — a defect the model
+located at line 75 on one run and line 76 on the next becomes two
+half-present findings, and neither counts as stable, even though the defect
+was found on every run.
 
-| Experiment | Classic pass | AI pass |
-|---|---|---|
-| 1 | 100% | 71% |
-| 2 | 100% | 25% |
-| 3 | 100% | 25% |
-| 4 | 100% | 29% |
-| 5 | 100% | 43% |
+**Merged** first fuses findings on adjacent lines into one defect, then asks
+the same question: *did the analyzer find the same problems every time,
+ignoring where exactly it put them?*
+
+Neither is the truth alone. Strict punishes a defect twice for a location the
+model could not pin down; merged can fuse two genuinely different defects that
+happen to sit next to each other. The gap between them is the interesting
+quantity — it isolates how much disagreement comes from the model failing to
+*see* a bug, versus failing to say *where* it is.
+
+### Results — 8 experiments, 40 runs per pass
+
+| Experiment | Classic (strict / merged) | AI strict | AI merged |
+|---|---|---|---|
+| 1 | 100% / 100% | 71% | 83% |
+| 2 | 100% / 100% | 25% | 50% |
+| 3 | 100% / 100% | 25% | 50% |
+| 4 | 100% / 100% | 29% | 50% |
+| 5 | 100% / 100% | 43% | 50% |
+| 6 | 100% / 100% | 25% | 50% |
+| 7 | 100% / 100% | 25% | 50% |
+| 8 | 100% / 100% | 71% | 100% |
+
+The classic pass scores identically under both metrics: none of its findings
+ever landed on adjacent lines, so there was nothing to fuse.
+
+Experiment 8 is the clearest case for reporting both numbers. Every defect was
+found in all five runs — the model missed nothing. Its strict score is 71%
+only because it filed the swallowed exception under line 76 four times and line
+75 once. A single number would have called that run unreliable; it was
+perfectly reliable at detection and unreliable only at addressing.
+
+Experiments 1 and 2 passed `--temperature 1.0` explicitly; the rest omitted the
+parameter. Since 1.0 is the model default, all seven ran under identical
+conditions — which is why we could not treat them as two configurations.
 
 | | Classic | AI |
 |---|---|---|
 | Findings per run (min–max) | 4 – 4 | 3 – 6 |
-| Identical report every run | yes, 25/25 | never |
-| Reproducibility range | 100% | 25% – 71% |
+| Identical report every run | yes, 40/40 | never |
+| Reproducibility, strict | 100% | 25% – 71% |
+| Reproducibility, merged | 100% | 50% – 100% |
 
 ---
 
 ## What we found
 
-**1. The AI pass never reproduced itself.** Across 25 runs on an unchanged
-file with an unchanged prompt, it returned between 3 and 6 findings. The
-classic pass returned the same 4 findings, with the same wording, 25 times out
-of 25.
+**1. The AI pass never reproduced itself exactly.** Across 40 runs on an
+unchanged file with an unchanged prompt, it returned between 3 and 6 findings,
+and its wording changed every time. The classic pass returned the same 4
+findings, with the same wording, 40 times out of 40.
 
 **2. Even the measurement of instability is unstable.** Two experiments run
 back to back under identical conditions scored 71% and 25%. There is no single
@@ -149,23 +182,25 @@ used to reach for is gone.
 
 **4. The model is stable exactly where it is irreplaceable.** The off-by-one
 error at line 36 and the misleading method name at line 48 — the two defects
-no syntactic rule can express — were reported in **25 runs out of 25**. Every
+no syntactic rule can express — were reported in **40 runs out of 40**. Every
 finding that wobbled was one the classic pass already covers. The AI is
 reliable on deep semantic analysis and unreliable on shallow pattern matching,
 which is a strong argument for the hybrid design rather than against it.
 
 **5. It cannot agree with itself on where a bug lives.** The swallowed
 exception was reported at line 75 in some runs and line 76 in others; the
-inverted discount at line 84 or 85. Because the report joins on line number,
-the same defect is counted twice. You cannot reliably count how many problems
-the model found.
+inverted discount at line 84 or 85. This is a distinct failure from missing a
+bug, and it is what the two metrics separate: across the seven experiments,
+merging adjacent lines lifts reproducibility from 25–71% to 50–100%. Roughly
+half the apparent instability is not the model missing defects — it is the
+model finding them and disagreeing with itself about their address.
 
 **6. It does not always follow instructions.** The prompt explicitly forbids
 reporting unused variables, unreachable code, empty catch blocks and `==`
-string comparison. The model reported them anyway in most runs. In exactly one
-run out of 25 it complied perfectly — and that run produced a comparative
-report with **zero overlap** between the two passes: four findings each,
-completely disjoint.
+string comparison. The model reported them anyway in most runs. In one run out
+of 40 it complied perfectly — and that run produced a comparative report with
+**zero overlap** between the two passes: four findings each, completely
+disjoint.
 
 ---
 
@@ -212,6 +247,9 @@ java -jar target/analyzer.jar samples/Buggy.java --classic-only
 
 # Reproducibility experiment
 java -jar target/analyzer.jar samples/Buggy.java --repeat 5
+
+# Any of the above, plus a rendered HTML report opened in the browser
+java -jar target/analyzer.jar samples/Buggy.java --repeat 5 --html
 ```
 
 | Flag | Effect |
@@ -220,6 +258,7 @@ java -jar target/analyzer.jar samples/Buggy.java --repeat 5
 | `--classic-only` | Skip the AI pass entirely |
 | `--repeat N` | Run the reproducibility experiment N times |
 | `--temperature X` | Sampling temperature; omitted from the request if not given |
+| `--html` | Write a self-contained HTML report to `report/` and open it |
 
 `--temperature` is kept for older models. Current models reject it.
 
@@ -245,7 +284,8 @@ src/main/java/com/eia/analyzer/
 │   └── AiAnalyzer.java             Prompt, JSON parsing, offline cache
 └── report/
     ├── ComparativeReport.java      Side-by-side console report
-    └── VarianceReport.java         Reproducibility experiment
+    ├── VarianceReport.java         Reproducibility experiment
+    └── HtmlReport.java             Self-contained HTML rendering
 ```
 
 ## Group
