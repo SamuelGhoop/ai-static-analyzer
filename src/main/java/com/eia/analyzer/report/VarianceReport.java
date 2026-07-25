@@ -153,11 +153,13 @@ public class VarianceReport {
 
         if (aiStability < 100.0) {
             System.out.println(DIM
-                    + "  The AI pass did not reproduce itself. Lowering the temperature"
+                    + "  The AI pass did not reproduce itself. The usual remedy -- pinning"
                     + System.lineSeparator()
-                    + "  reduces this, but does not remove it: batching and floating-point"
+                    + "  the sampling temperature to zero -- is not available on this model:"
                     + System.lineSeparator()
-                    + "  non-associativity on the GPU keep a residue of variance."
+                    + "  temperature, top_p and top_k were deprecated, and any non-default"
+                    + System.lineSeparator()
+                    + "  value is rejected outright. Determinism is no longer a setting."
                     + RESET);
             System.out.println();
         }
