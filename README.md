@@ -1,10 +1,13 @@
 # AI Static Analyzer
 
-A hybrid static analyzer for Java source code: deterministic AST rules and an
-LLM-assisted semantic pass, running over the same file and compared side by side.
+A hybrid static analyzer for Java: deterministic AST rules and an LLM-assisted
+semantic pass, run over the same file and compared side by side — plus a
+reproducibility experiment that measures how often each one agrees with itself.
 
 Built for the Compilers course at Universidad EIA — Topic 15: *Artificial
 Intelligence applied to compilers and language development*.
+
+---
 
 ## Why hybrid
 
@@ -12,12 +15,14 @@ Classic static analysis is deterministic, fast and exact, but it only sees
 **syntax**. It can prove that a variable is never read; it cannot notice that a
 method called `calculateAverage` never divides.
 
-A language model sees **intent**, but it is non-deterministic and can
-hallucinate defects that do not exist.
+A language model sees **intent**, but it is probabilistic. It does not return
+an answer — it samples one.
 
-This project runs both over the same file and shows where they overlap, where
-each one is blind, and why the interesting future of compiler tooling is the
-combination rather than either half.
+This project runs both engines over the same file, shows where they overlap and
+where each one is blind, and then measures something most tooling never checks:
+whether either engine returns the same answer twice.
+
+---
 
 ## Pipeline
 
@@ -41,10 +46,13 @@ File.java
           Classic only | AI only | Both agree
 ```
 
-## Classic rules (Pass 1)
+---
 
-Each rule is a Visitor (Gang of Four Visitor Pattern) walking the AST.
-Complexity is O(n) over the number of AST nodes per rule.
+## Pass 1 — Classic rules
+
+Each rule is a Visitor (Gang of Four Visitor Pattern) walking the AST produced
+by JavaParser. Complexity is O(n) over the number of AST nodes per rule, so
+O(r·n) for r rules — linear in the size of the source file.
 
 | Rule | Detects |
 |------|---------|
@@ -53,16 +61,126 @@ Complexity is O(n) over the number of AST nodes per rule.
 | `StringEqualityRule` | Strings compared with `==` instead of `.equals()` |
 | `EmptyCatchRule` | Exceptions caught and silently discarded |
 
-## AI pass (Pass 2)
+`ClassicAnalyzer` first collects every identifier declared as a `String` — a
+poor man's symbol table — because `StringEqualityRule` needs type information
+to distinguish a reference comparison from a legitimate one.
 
-The source file is sent to the Anthropic Messages API with a prompt that
-explicitly excludes everything the classic pass already covers, and asks for
-logic bugs, off-by-one errors, misleading identifiers and intent mismatches.
-The model must reply with a JSON array, which is parsed into the same `Finding`
-model the classic pass produces.
+---
 
-The raw reply is cached in `.cache/` so the demo can be replayed with
-`--offline` and no network connection.
+## Pass 2 — AI review
+
+The source file, with line numbers prepended, is sent to the Anthropic Messages
+API. The prompt explicitly excludes everything Pass 1 already covers and asks
+for logic bugs, off-by-one errors, misleading identifiers and intent
+mismatches. The model must reply with a JSON array, parsed into the same
+`Finding` model the classic pass produces.
+
+The raw reply is cached in `.cache/`, so a demo can be replayed with
+`--offline` and produce an identical report every time. Given the findings
+below, this is not a convenience — it is the only way to make a live
+demonstration reproducible.
+
+---
+
+## Pass 3 — Comparative report
+
+Findings from both passes are joined **by line number**.
+
+That is a simplification, and we left it in deliberately. Two analyzers rarely
+describe the same problem the same way, and they do not always point at the
+same line either: when the classic rule reports the line where a `catch` clause
+starts and the model reports the line where its empty body sits, one defect
+shows up as two disagreeing findings. Reconciling output across a deterministic
+engine and a probabilistic one is an open problem, not a detail — hiding it
+behind fuzzy matching would have hidden the most interesting result.
+
+---
+
+## The reproducibility experiment
+
+```bash
+java -jar target/analyzer.jar samples/Buggy.java --repeat 5
+```
+
+The same file is analyzed N times by **both** passes. The classic pass is the
+control group: it is deterministic by construction, so it must return an
+identical report every run. Any instability in the AI pass is therefore a
+property of the model, not of the harness. The cache is bypassed here — replaying
+a stored answer would guarantee a perfect score and prove nothing.
+
+*Reproducibility* is the percentage of distinct findings that appeared in
+**every** run.
+
+### Results — 5 experiments, 25 runs per pass
+
+| Experiment | Classic pass | AI pass |
+|---|---|---|
+| 1 | 100% | 71% |
+| 2 | 100% | 25% |
+| 3 | 100% | 25% |
+| 4 | 100% | 29% |
+| 5 | 100% | 43% |
+
+| | Classic | AI |
+|---|---|---|
+| Findings per run (min–max) | 4 – 4 | 3 – 6 |
+| Identical report every run | yes, 25/25 | never |
+| Reproducibility range | 100% | 25% – 71% |
+
+---
+
+## What we found
+
+**1. The AI pass never reproduced itself.** Across 25 runs on an unchanged
+file with an unchanged prompt, it returned between 3 and 6 findings. The
+classic pass returned the same 4 findings, with the same wording, 25 times out
+of 25.
+
+**2. Even the measurement of instability is unstable.** Two experiments run
+back to back under identical conditions scored 71% and 25%. There is no single
+number we can honestly report as "the model's reliability."
+
+**3. Determinism is no longer a setting.** Our plan was to pin `temperature` to
+0 and show the analyzer stabilizing. The API refused with HTTP 400: Anthropic
+has deprecated `temperature`, `top_p` and `top_k` on recent models, and any
+non-default value is rejected outright. The recommended approach is now
+prompt-level control instead of sampling-level control. The knob developers
+used to reach for is gone.
+
+**4. The model is stable exactly where it is irreplaceable.** The off-by-one
+error at line 36 and the misleading method name at line 48 — the two defects
+no syntactic rule can express — were reported in **25 runs out of 25**. Every
+finding that wobbled was one the classic pass already covers. The AI is
+reliable on deep semantic analysis and unreliable on shallow pattern matching,
+which is a strong argument for the hybrid design rather than against it.
+
+**5. It cannot agree with itself on where a bug lives.** The swallowed
+exception was reported at line 75 in some runs and line 76 in others; the
+inverted discount at line 84 or 85. Because the report joins on line number,
+the same defect is counted twice. You cannot reliably count how many problems
+the model found.
+
+**6. It does not always follow instructions.** The prompt explicitly forbids
+reporting unused variables, unreachable code, empty catch blocks and `==`
+string comparison. The model reported them anyway in most runs. In exactly one
+run out of 25 it complied perfectly — and that run produced a comparative
+report with **zero overlap** between the two passes: four findings each,
+completely disjoint.
+
+---
+
+## Conclusion
+
+A compiler pass that returns a different answer on the same input is not a
+compiler pass. It is an advisor.
+
+That is not a reason to leave AI out of the toolchain — the model found three
+real defects our rules are structurally incapable of expressing, and it found
+them every single time. It is a reason to keep the deterministic passes
+underneath it. Reproducibility is not a feature you add to a language model; it
+is a property the classic passes already have, and the reason they should stay.
+
+---
 
 ## Requirements
 
@@ -77,26 +195,41 @@ export ANTHROPIC_API_KEY="your-key-here"
 mvn clean package
 ```
 
-The API key is read from the environment and is never committed to the
-repository.
+The key is read from the environment and never committed. Optionally set
+`ANTHROPIC_MODEL` to override the default model.
 
 ## Usage
 
 ```bash
-# Full analysis: classic pass + AI pass + comparative report
+# Classic pass + AI pass + comparative report
 java -jar target/analyzer.jar samples/Buggy.java
 
-# Replay the cached AI response, no network needed
+# Replay the cached AI response — no network, identical output every time
 java -jar target/analyzer.jar samples/Buggy.java --offline
 
 # Deterministic pass only
 java -jar target/analyzer.jar samples/Buggy.java --classic-only
+
+# Reproducibility experiment
+java -jar target/analyzer.jar samples/Buggy.java --repeat 5
 ```
+
+| Flag | Effect |
+|------|--------|
+| `--offline` | Replay the cached AI response instead of calling the API |
+| `--classic-only` | Skip the AI pass entirely |
+| `--repeat N` | Run the reproducibility experiment N times |
+| `--temperature X` | Sampling temperature; omitted from the request if not given |
+
+`--temperature` is kept for older models. Current models reject it.
 
 ## Sample file
 
-`samples/Buggy.java` contains planted defects of both families: syntactic ones
-the classic rules catch, and semantic ones only the AI pass reports.
+`samples/Buggy.java` contains seven planted defects: four the classic rules
+catch, three only the AI pass reports. It lives outside `src/` because it does
+not compile — the unreachable statement after a `return` is a compile error in
+Java, which is precisely what `UnreachableCodeRule` replicates. It is input
+data, not project source.
 
 ## Project structure
 
@@ -110,9 +243,10 @@ src/main/java/com/eia/analyzer/
 ├── ai/
 │   ├── ClaudeClient.java           Anthropic Messages API client
 │   └── AiAnalyzer.java             Prompt, JSON parsing, offline cache
-└── report/ComparativeReport.java   Side-by-side console report
+└── report/
+    ├── ComparativeReport.java      Side-by-side console report
+    └── VarianceReport.java         Reproducibility experiment
 ```
 
-## License
-
-Academic project. Free to read, fork and learn from.
+## Group
+Samuel Giraldo Jimenez - Samuel Buelvas Cabrales
